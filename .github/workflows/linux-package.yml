@@ -34,15 +34,20 @@ jobs:
       - name: Host tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq cmake ninja-build nasm uuid-dev build-essential lld
-          # EDK II's CLANGPDB toolchain needs `lld-link`; Ubuntu ships it as lld-link-<ver>.
-          if ! command -v lld-link >/dev/null; then
-            candidate=$(ls /usr/bin/lld-link-* 2>/dev/null | sort -V | tail -1 || true)
-            [ -n "$candidate" ] || { echo "::error::lld-link not found after installing lld"; exit 1; }
-            sudo ln -sf "$candidate" /usr/local/bin/lld-link
-          fi
+          sudo apt-get install -y -qq cmake ninja-build nasm uuid-dev build-essential lld llvm
+          # EDK II's CLANGPDB toolchain needs unversioned lld-link / llvm-lib / llvm-rc / llvm-objcopy.
+          # Ubuntu ships them as <name>-<version>; link the highest version into /usr/local/bin.
+          for tool in lld-link llvm-lib llvm-rc llvm-objcopy llvm-ar llvm-nm llvm-ranlib llvm-strip; do
+            command -v "$tool" >/dev/null && continue
+            candidate=$(ls /usr/bin/"$tool"-* /usr/lib/llvm-*/bin/"$tool" 2>/dev/null | sort -V | tail -1 || true)
+            if [ -n "$candidate" ]; then sudo ln -sf "$candidate" "/usr/local/bin/$tool"; else echo "::warning::$tool not found"; fi
+          done
+          for tool in lld-link llvm-lib llvm-rc llvm-objcopy; do
+            command -v "$tool" >/dev/null || { echo "::error::$tool is still missing"; exit 1; }
+          done
           clang --version | head -n 1
           lld-link --version || true
+          llvm-lib --version 2>&1 | head -n 1 || true
           cmake --version | head -n 1
           ninja --version
 
