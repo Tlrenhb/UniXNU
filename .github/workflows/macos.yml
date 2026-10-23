@@ -302,7 +302,9 @@ jobs:
             echo "| payload | ${PAYLOAD:-skipped} |"
             echo
             echo "This workflow only checks that the build works. It publishes text logs (7 days) and no images."
-            xcodebuild -version | head -n 1
+            # xcodebuild sometimes aborts on the hosted image (Abort trap: 6); the build itself already
+            # succeeded by this point, so a failing summary command must not mark the run as failed.
+            xcodebuild -version 2>/dev/null | head -n 1 || true
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove proprietary inputs
