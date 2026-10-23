@@ -1,0 +1,118 @@
+name: macos payload
+
+# 官方工作流的 payload 步骤要求先把信任包/Data seed 上传成 URL，并且需要 UNIXNU_UNIQUE_CHIP_ID secret。
+# 这条工作流改用"作业内直接生成"的方式，不需要任何 secret，也不会把种子写进日志：
+#   1. 取 IPSW 里的 KernelCache / StaticTrustCache / Cryptex1,SystemTrustCache
+#   2. 用主仓库脚本派生 original-static-system trust bundle
+#   3. 构建内核（prelink）
+#   4. 用作业内随机生成的 platform seed 构建 payload
+# 只上传文本日志；不上传任何镜像。
+on:
+  workflow_dispatch:
+    inputs:
+      ipsw_url:
+        description: IPSW URL (empty uses board.toml)
+        required: false
+        default: ""
+      xcode:
+        description: Xcode version of the macos-26 image
+        required: false
+        default: "26.6"
+
+permissions:
+  contents: read
+
+jobs:
+  payload:
+    runs-on: macos-26
+    timeout-minutes: 360
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_${{ inputs.xcode }}.app/Contents/Developer
+      UNIXNU_DEVICE: ${{ github.workspace }}/device
+      UNIXNU_IPSW: ${{ inputs.ipsw_url }}
+    steps:
+      - name: Check out UniXNU
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check out the device repository
+        uses: actions/checkout@v4
+        with:
+          repository: Tlrenhb/UniXNU-enuma
+          ref: main
+          path: device
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install host tools
+        run: |
+          brew install llvm lld mtools dtc
+          command -v unifdef >/dev/null || { brew install unifdef; echo "$(brew --prefix unifdef)/bin" >> "$GITHUB_PATH"; }
+
+      - name: Select the device
+        run: ./unixnu defconfig enuma_defconfig
+
+      - name: Fetch sources
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./unixnu fetch
+
+      - name: Fetch the IPSW members the payload needs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./unixnu ipsw fetch KernelCache StaticTrustCache Cryptex1,SystemTrustCache
+
+      - name: Derive the original static/system trust bundle
+        run: |
+          ls -la .cache/firmware/target-volumes/ 2>/dev/null || true
+          python3 scripts/build-original-system-trust.py
+
+      - name: Build the kernel
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./unixnu build kernel
+
+      - name: Build the payload (platform seed generated in-job, never logged)
+        run: |
+          set -euo pipefail
+          SEED=$(openssl rand -hex 8)
+          echo "::add-mask::$SEED"
+          BUNDLE=build/original-static-system-trust/original-static-system.bundle
+          ls -la "$BUNDLE"
+          ./unixnu build payload --unique-chip-id "$SEED" --trust-cache "$BUNDLE"
+          ls -la out/enuma/payload/ || true
+
+      - name: Collect text logs
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/public-logs"
+          for f in out/enuma/logs/*.log; do
+            [ -f "$f" ] || continue
+            cp "$f" "$RUNNER_TEMP/public-logs/"
+          done
+          ls -la "$RUNNER_TEMP/public-logs" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: enuma-payload-logs-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/public-logs/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## enuma payload build"
+            echo
+            echo "IPSW members -> original trust bundle -> kernel -> payload (random platform seed, masked)."
+            echo "Text logs only; no images are uploaded."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove proprietary inputs
+        if: always()
+        run: rm -rf out/ipsw out/feeds device/.cache/firmware out/*/tree/.cache/firmware
