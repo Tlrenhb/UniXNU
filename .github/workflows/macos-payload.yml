@@ -67,8 +67,15 @@ jobs:
 
       - name: Derive the original static/system trust bundle
         run: |
-          ls -la .cache/firmware/target-volumes/ 2>/dev/null || true
-          python3 scripts/build-original-system-trust.py
+          # The upstream script opens the whole 6.37 GiB IPSW from refer/, which does not fit on a hosted
+          # runner next to a kernel build. The device repository ships an equivalent that works from the two
+          # small members the driver already extracted, and checks every hash plus the board whitelist.
+          IPSW_DIR=$(ls -d out/ipsw/*/ | head -1)
+          echo "IPSW dir: $IPSW_DIR"
+          ls -la "$IPSW_DIR"
+          python3 device/scripts/make-trust-bundle-from-members.py \
+            --ipsw-dir "$IPSW_DIR" \
+            --out build/original-static-system-trust/original-static-system.bundle
 
       - name: Build the kernel
         env:
