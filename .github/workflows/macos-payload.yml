@@ -73,6 +73,7 @@ jobs:
           IPSW_DIR=$(ls -d out/ipsw/*/ | head -1)
           echo "IPSW dir: $IPSW_DIR"
           ls -la "$IPSW_DIR"
+          for j in "$IPSW_DIR"/*.trustcache.json; do echo "--- $j"; cat "$j"; echo; done
           python3 device/scripts/make-trust-bundle-from-members.py \
             --ipsw-dir "$IPSW_DIR" \
             --out build/original-static-system-trust/original-static-system.bundle
