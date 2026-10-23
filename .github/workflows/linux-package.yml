@@ -1,0 +1,85 @@
+name: linux package
+
+# 官方文档说 package / firmware / boot image 步骤"在任何 OS 上都能跑"，不进 macOS 工作流。
+# 这条工作流在 Linux runner 上验证 package 步骤（不需要 Xcode），把 macOS 配额留给内核步骤。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      UNIXNU_DEVICE: ${{ github.workspace }}/device
+    steps:
+      - name: Check out UniXNU
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Check out the device repository
+        uses: actions/checkout@v4
+        with:
+          repository: Tlrenhb/UniXNU-enuma
+          ref: main
+          path: device
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Host tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build nasm uuid-dev build-essential
+          clang --version | head -n 1
+          cmake --version | head -n 1
+          ninja --version
+
+      - name: Select the device
+        run: ./unixnu defconfig enuma_defconfig
+
+      - name: Fetch the pinned sources
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./unixnu fetch
+
+      - name: Build the UniXNU package
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./unixnu build package
+
+      - name: Collect text logs
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/public-logs"
+          for board in out/*/logs; do
+            [ -d "$board" ] || continue
+            for f in "$board"/*.log; do
+              [ -f "$f" ] || continue
+              case "$(basename "$f")" in
+                *package*) cp "$f" "$RUNNER_TEMP/public-logs/" ;;
+              esac
+            done
+          done
+          ls -la "$RUNNER_TEMP/public-logs" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-package-logs-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/public-logs/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Linux package build"
+            echo
+            echo "Runs the official package step (no Xcode) with the enuma device repository."
+          } >> "$GITHUB_STEP_SUMMARY"
