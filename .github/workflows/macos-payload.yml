@@ -30,6 +30,9 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_${{ inputs.xcode }}.app/Contents/Developer
       UNIXNU_DEVICE: ${{ github.workspace }}/device
       UNIXNU_IPSW: ${{ inputs.ipsw_url }}
+      # The panic screen's Font.h comes from the Mu-Silicium checkout; uefi-pipa is the same-SoC port and
+      # is also what the firmware step will use later.
+      UNIXNU_UEFI: ${{ github.workspace }}/uefi-pipa
     steps:
       - name: Check out UniXNU
         uses: actions/checkout@v4
@@ -43,9 +46,20 @@ jobs:
           ref: main
           path: device
 
+      - name: Check out the same-SoC UEFI port (panic screen font + future firmware step)
+        uses: actions/checkout@v4
+        with:
+          repository: xVanTuring/uefi-pipa
+          ref: pipa
+          path: uefi-pipa
+          fetch-depth: 1
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
+      - name: Check the panic screen font is reachable
+        run: test -f "$UNIXNU_UEFI/Silicon/Silicium/SiliciumPkg/Library/FrameBufferSerialPortLib/Font.h" && echo "Font.h present"
 
       - name: Install host tools
         run: |
