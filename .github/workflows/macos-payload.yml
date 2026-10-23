@@ -147,13 +147,15 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          PLACEHOLDER: ${{ inputs.placeholder_dram_size != '' }}
         run: |
           {
             echo "## enuma payload build"
             echo
             echo "IPSW members -> original trust bundle -> kernel -> payload (random platform seed, masked)."
             echo
-            echo "PLACEHOLDER MODE: ${{ inputs.placeholder_dram_size != '' }} — a substituted DRAM size is a pipeline test, not a measurement.
+            echo "placeholder DRAM size in use: $PLACEHOLDER (true = pipeline test, not a measurement)"
             echo "Text logs only; no images are uploaded."
           } >> "$GITHUB_STEP_SUMMARY"
 
