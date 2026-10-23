@@ -18,6 +18,10 @@ on:
         description: Xcode version of the macos-26 image
         required: false
         default: "26.6"
+      placeholder_dram_size:
+        description: PIPELINE TEST ONLY - substitute this dram_size when board.toml has none (NOT a measurement)
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -97,6 +101,22 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: ./unixnu build kernel
 
+      - name: Apply a placeholder DRAM size (pipeline test only, never committed)
+        if: inputs.placeholder_dram_size != ''
+        run: |
+          python3 - "${{ inputs.placeholder_dram_size }}" <<'PY'
+          import pathlib, re, sys
+          value = sys.argv[1]
+          board = pathlib.Path('device/board.toml')
+          text = board.read_text(encoding='utf-8')
+          patched, count = re.subn(r'(?m)^dram_size\s*=\s*"[^"]*"',
+                                   f'dram_size = "{value}"  # PLACEHOLDER: pipeline test, not a measurement', text)
+          if not count:
+              raise SystemExit('dram_size not found in device/board.toml')
+          board.write_text(patched, encoding='utf-8')
+          print(f'substituted dram_size = {value} (PLACEHOLDER - this image is not a measurement-correct payload)')
+          PY
+
       - name: Build the payload (platform seed generated in-job, never logged)
         run: |
           set -euo pipefail
@@ -132,6 +152,8 @@ jobs:
             echo "## enuma payload build"
             echo
             echo "IPSW members -> original trust bundle -> kernel -> payload (random platform seed, masked)."
+            echo
+            echo "PLACEHOLDER MODE: ${{ inputs.placeholder_dram_size != '' }} — a substituted DRAM size is a pipeline test, not a measurement.
             echo "Text logs only; no images are uploaded."
           } >> "$GITHUB_STEP_SUMMARY"
 
