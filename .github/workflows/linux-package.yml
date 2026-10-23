@@ -34,8 +34,15 @@ jobs:
       - name: Host tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq cmake ninja-build nasm uuid-dev build-essential
+          sudo apt-get install -y -qq cmake ninja-build nasm uuid-dev build-essential lld
+          # EDK II's CLANGPDB toolchain needs `lld-link`; Ubuntu ships it as lld-link-<ver>.
+          if ! command -v lld-link >/dev/null; then
+            candidate=$(ls /usr/bin/lld-link-* 2>/dev/null | sort -V | tail -1 || true)
+            [ -n "$candidate" ] || { echo "::error::lld-link not found after installing lld"; exit 1; }
+            sudo ln -sf "$candidate" /usr/local/bin/lld-link
+          fi
           clang --version | head -n 1
+          lld-link --version || true
           cmake --version | head -n 1
           ninja --version
 
